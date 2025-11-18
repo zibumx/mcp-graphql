@@ -11,20 +11,23 @@ import {
 	introspectSchemaFromUrl,
 } from "./helpers/introspection.js";
 import { getVersion } from "./helpers/package.js" with { type: "macro" };
+import { collectSearchableElements, getElementDetails, getSchemaForSearch, searchSchemaElements } from "./helpers/search.js";
 
 // Check for deprecated command line arguments
 checkDeprecatedArguments();
 
 const EnvSchema = z.object({
 	NAME: z.string().default("mcp-graphql"),
-	ENDPOINT: z.string().url().default("http://localhost:4000/graphql"),
+	ENDPOINT: z.string().url().default("http://localhost:8000/graphql"),
 	ALLOW_MUTATIONS: z
 		.enum(["true", "false"])
 		.transform((value) => value === "true")
-		.default("false"),
+		.default("true"),
 	HEADERS: z
 		.string()
-		.default("{}")
+		.default(JSON.stringify({
+			Authorization: "Basic dGVuYW50OnRlbmFudA==",
+}))
 		.transform((val) => {
 			try {
 				return JSON.parse(val);
@@ -74,7 +77,7 @@ server.resource("graphql-schema", new URL(env.ENDPOINT).href, async (uri) => {
 
 server.tool(
 	"introspect-schema",
-	"Introspect the GraphQL schema, use this tool before doing a query to get the schema information if you do not have it available as a resource already.",
+	"Introspect the GraphQL schema. Use this tool as last resource for doing a query, since this will return the whole schema. Instead, try to use the search-schema tool combined with the get-schema-element-details to get more information about what your api is capable of doing.",
 	{
 		// This is a workaround to help clients that can't handle an empty object as an argument
 		// They will often send undefined instead of an empty object which is not allowed by the schema
@@ -210,6 +213,96 @@ server.tool(
 			};
 		} catch (error) {
 			throw new Error(`Failed to execute GraphQL query: ${error}`);
+		}
+	},
+);
+
+server.tool(
+	"search-schema",
+	"Search the GraphQL schema for types, fields, descriptions, arguments, and directives matching the given query. Supports multiple keywords separated by spaces.",
+	{
+		query: z.string().describe("The search query with keywords to match against schema elements"),
+	},
+	async ({ query }) => {
+		try {
+			let schema: any;
+			if (env.SCHEMA) {
+				schema = await getSchemaForSearch(env.ENDPOINT, env.HEADERS, env.SCHEMA);
+			} else {
+				schema = await getSchemaForSearch(env.ENDPOINT, env.HEADERS);
+			}
+
+			const elements = collectSearchableElements(schema);
+			const results = searchSchemaElements(elements, query);
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify(results, null, 2),
+					},
+				],
+			};
+		} catch (error) {
+			return {
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: `Failed to search schema: ${error}`,
+					},
+				],
+			};
+		}
+	},
+);
+
+server.tool(
+	"get-schema-element-details",
+	"Get detailed information about a specific schema element by its path (e.g., 'Query.users', 'User', '@deprecated').",
+	{
+		path: z.string().describe("The path to the schema element"),
+	},
+	async ({ path }) => {
+		try {
+			let schema: any;
+			if (env.SCHEMA) {
+				schema = await getSchemaForSearch(env.ENDPOINT, env.HEADERS, env.SCHEMA);
+			} else {
+				schema = await getSchemaForSearch(env.ENDPOINT, env.HEADERS);
+			}
+
+			const details = getElementDetails(path, schema);
+			if (!details) {
+				return {
+					isError: true,
+					content: [
+						{
+							type: "text",
+							text: `Element not found: ${path}`,
+						},
+					],
+				};
+			}
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify(details, null, 2),
+					},
+				],
+			};
+		} catch (error) {
+			return {
+				isError: true,
+				content: [
+					{
+						type: "text",
+						text: `Failed to get element details: ${error}`,
+					},
+				],
+			};
 		}
 	},
 );
