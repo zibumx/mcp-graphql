@@ -17,17 +17,15 @@ import { collectSearchableElements, getElementDetails, getSchemaForSearch, searc
 checkDeprecatedArguments();
 
 const EnvSchema = z.object({
-	NAME: z.string().default("mcp-graphql"),
-	ENDPOINT: z.string().url().default("http://localhost:8000/graphql"),
+	NAME: z.string().default("@zibu.app/mcp-graphql"),
+	ENDPOINT: z.string().url().default("http://localhost:4000/graphql"),
 	ALLOW_MUTATIONS: z
 		.enum(["true", "false"])
 		.transform((value) => value === "true")
 		.default("true"),
 	HEADERS: z
 		.string()
-		.default(JSON.stringify({
-			Authorization: "Basic dGVuYW50OnRlbmFudA==",
-}))
+		.default("{}")
 		.transform((val) => {
 			try {
 				return JSON.parse(val);
